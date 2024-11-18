@@ -1,6 +1,9 @@
 use crate::error::HudError;
 use anyhow::Result;
 use async_trait::async_trait;
+use reqwest::header::{HeaderMap, HeaderValue};
+use serde::{Deserialize, Serialize};
+
 
 #[async_trait]
 pub trait Summarizer {
@@ -24,10 +27,50 @@ impl ClaudeSummarizer {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct ContentAPIResponse {
+    text: String,
+    #[serde(rename = "type")]
+    response_type: String,
+}
+#[derive(Serialize, Deserialize)]
+struct TokenUsageAPIResponse {
+    input_tokens: u32,
+    output_tokens: u32,
+}
+#[derive(Serialize, Deserialize)]
+struct AnthropicAPIResponse {
+    content: Vec<ContentAPIResponse>,
+    id: String,
+    model: String,
+    role: String,
+    stop_reason: String,
+    stop_sequence: String,
+    #[serde(rename = "type")]
+    response_type: String,
+    usage: TokenUsageAPIResponse,
+}
+
 #[async_trait]
 impl Summarizer for ClaudeSummarizer {
     async fn summarize(&self, diff: &str) -> Result<String> {
+        let c_summarizer = ClaudeSummarizer::new()?;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Api-Key", HeaderValue::from_str(&self.api_key)?);
+        headers.insert("anthropic-version", "2023-06-01".parse()?);
+        headers.insert("content-type", "application/json".parse()?);
+        let request_body = r#"{
+            "model": "claude-3-5-haiku-20241022",
+            "max_tokens": "256",
+            "messages": [
+                {"role": "user", "content": }
+            ]
+        }"#;
+        let response = self.client.post("https://api.anthropic.com/v1/messages")
+            .headers(headers)
+            .json(&request_body)
+            .send()..json::<AnthropicAPIResponse>()?;
+
         // We'll implement this next
-        todo!()
     }
 }
