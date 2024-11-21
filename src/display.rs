@@ -1,4 +1,5 @@
 use crate::git::{Status, StatusCode};
+use crate::FileWithSummary;
 use anyhow::Result;
 use colored::*;
 use std::process::Command;
@@ -160,6 +161,99 @@ impl StatusFormatter {
             StatusCode::Untracked => "untracked",
             StatusCode::Ignored => "ignored",
         }
+    }
+
+    pub fn display_with_summaries(&self, files: &[FileWithSummary]) -> Result<()> {
+        self.print_branch_status()?;
+
+        let mut has_staged = false;
+        let mut has_unstaged = false;
+        let mut has_untracked = false;
+
+        for file in files {
+            match file.status {
+                StatusCode::Untracked => has_untracked = true,
+                _ if file.staged => has_staged = true,
+                _ => has_unstaged = true,
+            }
+        }
+
+        if has_staged {
+            println!("Changes to be committed:");
+            println!("  (use \"git restore --staged <file>...\" to unstage)");
+
+            for file in files {
+                if file.staged {
+                    let status_text = self.format_status(&file.status);
+
+                    if let Some(ref orig_path) = file.original_path {
+                        print!("\t{}: {} -> {}",
+                               status_text.green(),
+                               orig_path,
+                               file.path
+                        );
+                    } else {
+                        print!("\t{}: {}",
+                               status_text.green(),
+                               file.path
+                        );
+                    }
+
+                    // Add summary if available
+                    if let Some(ref summary) = file.summary {
+                        println!(" ({})", summary);
+                    } else {
+                        println!();
+                    }
+                }
+            }
+            println!();
+        }
+
+        if has_unstaged {
+            println!("Changes not staged for commit:");
+            println!("  (use \"git add <file>...\" to update what will be committed)");
+            println!("  (use \"git restore <file>...\" to discard changes in working directory)");
+
+            for file in files {
+                if !file.staged && !matches!(file.status, StatusCode::Untracked) {
+                    let status_text = self.format_status(&file.status);
+                    print!("\t{}: {}",
+                           status_text.red(),
+                           file.path
+                    );
+
+                    // Add summary if available
+                    if let Some(ref summary) = file.summary {
+                        println!(" ({})", summary);
+                    } else {
+                        println!();
+                    }
+                }
+            }
+            println!();
+        }
+
+        if has_untracked {
+            println!("Untracked files:");
+            println!("  (use \"git add <file>...\" to include in what will be committed)");
+
+            for file in files {
+                if matches!(file.status, StatusCode::Untracked) {
+                    println!("\t{}", file.path.red());
+                    if let Some(ref summary) = file.summary {
+                        println!("\t  ({})", summary);
+                    }
+                }
+            }
+            println!();
+        }
+
+        if !has_staged && has_unstaged {
+            println!("no changes added to commit (use \"git add\" and/or \"git commit -a\")");
+        }
+
+        Ok(())
     }
 }
 

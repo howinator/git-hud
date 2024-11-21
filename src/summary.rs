@@ -73,6 +73,11 @@ impl Summarizer for ClaudeSummarizer {
             .json(&request_body)
             .send().await?;
 
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("Claude API error: {}", error_text));
+        }
+
         let message: AnthropicAPIResponse = response.json().await?;
 
         return Ok(message.content[0].text.clone());
