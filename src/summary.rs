@@ -1,4 +1,5 @@
 use crate::error::HudError;
+use crate::strings;
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
@@ -16,7 +17,7 @@ pub struct ClaudeSummarizer {
 
 impl ClaudeSummarizer {
     pub fn new() -> Result<Self> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY")
+        let api_key = std::env::var(strings::ANTHROPIC_API_KEY)
             .map_err(|_| HudError::Api("ANTHROPIC_API_KEY not set".to_string()))?;
 
         Ok(Self {

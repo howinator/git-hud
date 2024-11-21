@@ -5,6 +5,7 @@ mod display;
 mod error;
 mod git;
 mod summary;
+mod strings;
 
 use crate::summary::Summarizer;
 use git::StatusCode;
@@ -22,7 +23,7 @@ struct FileWithSummary {
 #[tokio::main]
 async fn run() -> Result<()> {
     // Ensure we have the API key
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
+    let api_key = std::env::var(strings::ANTHROPIC_API_KEY)
         .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY environment variable not set"))?;
 
     // Initialize repositories and services
