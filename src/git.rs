@@ -72,6 +72,7 @@ impl Repository {
 
         let mut entries = Vec::new();
 
+        // Split on NUL byte while preserving empty strings
         for line in output.split('\0') {
             if line.is_empty() {
                 continue;
@@ -89,15 +90,12 @@ impl Repository {
                     false
                 };
 
-                if !is_binary {
-                    entries.push(StatusEntry { is_binary, ..entry });
-                }
+                entries.push(StatusEntry { is_binary, ..entry });
             }
         }
 
         Ok(Status { entries })
     }
-
     // Uses the grep heuristic for whether a file is binary
     fn is_file_binary(&self, path: &str) -> Result<bool> {
         // Skip if file doesn't exist (e.g., deleted files)
@@ -119,22 +117,32 @@ impl Repository {
     }
 
     fn parse_status_line(&self, line: &str) -> Result<Option<StatusEntry>> {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-
-        if parts.is_empty() {
+        if line.is_empty() {
             return Ok(None);
         }
 
-        match parts[0] {
+        // Split the line on whitespace while preserving the path which might contain spaces
+        let mut parts = line.splitn(2, ' ');
+        let entry_type = parts.next().ok_or_else(|| anyhow::anyhow!("Missing entry type"))?;
+
+        match entry_type {
             // Regular changed entry
             "1" | "2" => {
-                if parts.len() < 3 {
-                    return Err(anyhow::anyhow!("Invalid status line format"));
-                }
+                let remainder = parts.next().ok_or_else(|| anyhow::anyhow!("Missing entry data"))?;
+                let mut fields = remainder.splitn(8, ' ');
 
-                let xy = parts[1];
-                // Join remaining parts to handle spaces in filenames
-                let path = parts[2..].join(" ");
+                let xy = fields.next().ok_or_else(|| anyhow::anyhow!("Missing XY field"))?;
+                let _sub = fields.next(); // Skip sub field
+                let _mH = fields.next(); // Skip mH field
+                let _mI = fields.next(); // Skip mI field
+                let _mW = fields.next(); // Skip mW field
+                let _hash1 = fields.next(); // Skip hash1
+                let _hash2 = fields.next(); // Skip hash2
+
+                // The remaining part is the path (might contain spaces)
+                let path = fields.next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing path"))?
+                    .to_string();
 
                 let staged = xy.chars().nth(0).map(|c| c != '.').unwrap_or(false);
                 let status = if let Some(code) = xy.chars().nth(1) {
@@ -156,55 +164,51 @@ impl Repository {
                 }))
             }
 
+            // Rest of the cases remain the same
             "R" | "C" => {
-                if parts.len() < 4 {
-                    return Err(anyhow::anyhow!("Invalid rename/copy line format"));
-                }
-
-                let status = if parts[0] == "R" {
-                    StatusCode::Renamed
-                } else {
-                    StatusCode::Copied
-                };
-
-                let score = parts[1];
-                let original = parts[2..parts.len() - 1].join(" ");
-                let new = parts[parts.len() - 1].to_string();
+                let remainder = parts.next().ok_or_else(|| anyhow::anyhow!("Missing rename/copy data"))?;
+                let mut parts = remainder.rsplitn(2, ' ');
+                let new = parts.next().unwrap().to_string();
+                let original = parts.next().unwrap().to_string();
 
                 Ok(Some(StatusEntry {
                     path: new,
-                    status,
+                    status: if entry_type == "R" { StatusCode::Renamed } else { StatusCode::Copied },
                     staged: true,
                     original_path: Some(original),
-                    is_binary: false, // Will be set later
+                    is_binary: false,
                 }))
             }
 
             "u" => {
-                if parts.len() < 2 {
-                    return Err(anyhow::anyhow!("Invalid unmerged line format"));
-                }
+                let path = parts.next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing path in unmerged entry"))?
+                    .to_string();
 
                 Ok(Some(StatusEntry {
-                    path: parts[1..].join(" "),
+                    path,
                     status: StatusCode::Unmerged,
                     staged: false,
                     original_path: None,
-                    is_binary: false, // Will be set later
+                    is_binary: false,
                 }))
             }
 
             "?" => {
+                let path = parts.next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing path in untracked entry"))?
+                    .to_string();
+
                 Ok(Some(StatusEntry {
-                    path: parts[1..].join(" "),
+                    path,
                     status: StatusCode::Untracked,
                     staged: false,
                     original_path: None,
-                    is_binary: false, // Will be set later
+                    is_binary: false,
                 }))
             }
 
-            "!" => Ok(None),
+            "!" => Ok(None), // Ignored files
 
             _ => Ok(None),
         }
@@ -220,7 +224,10 @@ impl Repository {
                 // For untracked files, show the entire file as added
                 let content = std::fs::read_to_string(&entry.path)
                     .context("Failed to read untracked file")?;
-                Ok(Some(format!("+{}", content.lines().collect::<Vec<_>>().join("\n+"))))
+                Ok(Some(format!(
+                    "+{}",
+                    content.lines().collect::<Vec<_>>().join("\n+")
+                )))
             }
             StatusCode::Deleted => {
                 // For deleted files, show what was deleted using git show
@@ -232,7 +239,10 @@ impl Repository {
                 if output.status.success() {
                     let content = String::from_utf8(output.stdout)
                         .context("Invalid UTF-8 in git show output")?;
-                    Ok(Some(format!("-{}", content.lines().collect::<Vec<_>>().join("\n-"))))
+                    Ok(Some(format!(
+                        "-{}",
+                        content.lines().collect::<Vec<_>>().join("\n-")
+                    )))
                 } else {
                     Ok(None)
                 }
@@ -240,13 +250,7 @@ impl Repository {
             StatusCode::Renamed | StatusCode::Copied => {
                 if let Some(ref old_path) = entry.original_path {
                     let output = Command::new("git")
-                        .args([
-                            "diff",
-                            "--no-color",
-                            "--no-prefix",
-                            old_path,
-                            &entry.path
-                        ])
+                        .args(["diff", "--no-color", "--no-prefix", old_path, &entry.path])
                         .output()
                         .context("Failed to execute git diff for renamed file")?;
 
@@ -268,7 +272,7 @@ impl Repository {
                         "--no-color",
                         "--no-prefix",
                         "--diff-filter=U",
-                        &entry.path
+                        &entry.path,
                     ])
                     .output()
                     .context("Failed to execute git diff for unmerged file")?;
@@ -293,6 +297,9 @@ impl Repository {
 
                 let output = Command::new("git")
                     .args(&args)
+                    .env("GIT_CONFIG_NOGLOBAL", "1")
+                    .env("HOME", "")
+                    .env("XDG_CONFIG_HOME", "")
                     .output()
                     .context("Failed to execute git diff")?;
 
@@ -301,7 +308,7 @@ impl Repository {
                         .context("Invalid UTF-8 in git diff output")
                         .map(Some)
                 } else {
-                    Ok(None)
+                    Err(anyhow::anyhow!("Failed to execute git diff").context(String::from_utf8(output.stderr)?))
                 }
             }
         }
@@ -315,7 +322,6 @@ mod tests {
     use std::io::Write;
     use std::process::Command;
     use tempfile::TempDir;
-
 
     pub fn setup_test_repo() -> Result<(TempDir, Repository)> {
         let temp_dir = TempDir::new()?;
@@ -545,7 +551,10 @@ mod tests {
 
         // Test various binary file types
         let test_files = [
-            ("image.png", &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A][..]), // PNG header
+            (
+                "image.png",
+                &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A][..],
+            ), // PNG header
             ("image.jpg", &[0xFF, 0xD8, 0xFF, 0xE0][..]), // JPEG header
             ("program.exe", &[0x4D, 0x5A, 0x90, 0x00][..]), // EXE header
             ("archive.zip", &[0x50, 0x4B, 0x03, 0x04][..]), // ZIP header
@@ -749,10 +758,17 @@ mod tests {
             .args(["merge", "feature"])
             .current_dir(temp_dir.path())
             .output()?;
-        assert!(!merge_output.status.success(), "Merge should create conflict");
+        assert!(
+            !merge_output.status.success(),
+            "Merge should create conflict"
+        );
 
         let status = repo.get_status()?;
-        let entry = status.entries.iter().find(|e| e.path == "conflict.txt").unwrap();
+        let entry = status
+            .entries
+            .iter()
+            .find(|e| e.path == "conflict.txt")
+            .unwrap();
         let diff = repo.get_diff(entry)?.unwrap();
 
         assert!(diff.contains("<<<<<<< HEAD"));

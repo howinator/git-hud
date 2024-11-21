@@ -55,16 +55,12 @@ impl StatusFormatter {
             .args(["branch", "--show-current"])
             .output()?;
 
-        let branch_name = String::from_utf8(branch_output.stdout)?
-            .trim()
-            .to_string();
+        let branch_name = String::from_utf8(branch_output.stdout)?.trim().to_string();
 
         println!("On branch {}", branch_name);
 
         // Get remote tracking info
-        let remote_output = Command::new("git")
-            .args(["status", "-sb"])
-            .output()?;
+        let remote_output = Command::new("git").args(["status", "-sb"]).output()?;
 
         let remote_status = String::from_utf8(remote_output.stdout)?;
 
@@ -95,16 +91,9 @@ impl StatusFormatter {
                 let path = format!("{}", entry.path);
 
                 if let Some(orig_path) = &entry.original_path {
-                    println!("\t{}: {} -> {}",
-                             status_text.green(),
-                             orig_path,
-                             path
-                    );
+                    println!("\t{}: {} -> {}", status_text.green(), orig_path, path);
                 } else {
-                    println!("\t{}: {}",
-                             status_text.green(),
-                             path
-                    );
+                    println!("\t{}: {}", status_text.green(), path);
                 }
             }
         }
@@ -123,10 +112,7 @@ impl StatusFormatter {
                 let path = format!("{}", entry.path);
 
                 // Here we'd add the summary when implemented
-                println!("\t{}: {}",
-                         status_text.red(),
-                         path
-                );
+                println!("\t{}: {}", status_text.red(), path);
             }
         }
         println!();
@@ -134,7 +120,9 @@ impl StatusFormatter {
     }
 
     fn print_untracked_files(&self, status: &Status) -> Result<()> {
-        let untracked: Vec<_> = status.entries.iter()
+        let untracked: Vec<_> = status
+            .entries
+            .iter()
             .filter(|e| matches!(e.status, StatusCode::Untracked))
             .collect();
 
@@ -187,16 +175,9 @@ impl StatusFormatter {
                     let status_text = self.format_status(&file.status);
 
                     if let Some(ref orig_path) = file.original_path {
-                        print!("\t{}: {} -> {}",
-                               status_text.green(),
-                               orig_path,
-                               file.path
-                        );
+                        print!("\t{}: {} -> {}", status_text.green(), orig_path, file.path);
                     } else {
-                        print!("\t{}: {}",
-                               status_text.green(),
-                               file.path
-                        );
+                        print!("\t{}: {}", status_text.green(), file.path);
                     }
 
                     // Add summary if available
@@ -218,10 +199,7 @@ impl StatusFormatter {
             for file in files {
                 if !file.staged && !matches!(file.status, StatusCode::Untracked) {
                     let status_text = self.format_status(&file.status);
-                    print!("\t{}: {}",
-                           status_text.red(),
-                           file.path
-                    );
+                    print!("\t{}: {}", status_text.red(), file.path);
 
                     // Add summary if available
                     if let Some(ref summary) = file.summary {
