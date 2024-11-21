@@ -2,6 +2,10 @@
 name = "git-hud"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-only"
+description = "git status++"
+repository = "https://github.com/howinator/git-hud"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
