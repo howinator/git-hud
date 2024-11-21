@@ -221,7 +221,7 @@ impl Repository {
                 let content = std::fs::read_to_string(&entry.path)
                     .context("Failed to read untracked file")?;
                 Ok(Some(format!("+{}", content.lines().collect::<Vec<_>>().join("\n+"))))
-            },
+            }
             StatusCode::Deleted => {
                 // For deleted files, show what was deleted using git show
                 let output = Command::new("git")
@@ -236,7 +236,7 @@ impl Repository {
                 } else {
                     Ok(None)
                 }
-            },
+            }
             StatusCode::Renamed | StatusCode::Copied => {
                 if let Some(ref old_path) = entry.original_path {
                     let output = Command::new("git")
@@ -260,7 +260,7 @@ impl Repository {
                 } else {
                     Ok(None)
                 }
-            },
+            }
             StatusCode::Unmerged => {
                 let output = Command::new("git")
                     .args([
@@ -280,7 +280,7 @@ impl Repository {
                 } else {
                     Ok(None)
                 }
-            },
+            }
             _ => {
                 // For modified/added files, use git diff with appropriate flags
                 let mut args = vec!["diff", "--no-color", "--no-prefix"];
@@ -317,7 +317,7 @@ mod tests {
     use tempfile::TempDir;
 
 
-    fn setup_test_repo() -> Result<(TempDir, Repository)> {
+    pub fn setup_test_repo() -> Result<(TempDir, Repository)> {
         let temp_dir = TempDir::new()?;
 
         // Initialize git repo
