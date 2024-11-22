@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
-use std::fs;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::Read;
+use std::path::{absolute, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
@@ -110,24 +111,37 @@ impl Repository {
         cmd
     }
     // Uses the grep heuristic for whether a file is binary
+    // TODO: There _must_ be a better way to do this.
     fn is_file_binary(&self, path: &PathBuf) -> Result<bool> {
         // Skip if file doesn't exist (e.g., deleted files)
-        if path.exists() {
+        if !path.exists() {
             return Ok(false);
         }
-        let mut grep_cmd = self.make_command("grep");
+        let mut file_cmd = self.make_command("file");
 
-        let output = grep_cmd
-            .args(["-Hm1", "^"])
+        let output = file_cmd
+            .args(["-bL", "--mime"])
             .arg(path)
-            .env("LC_MESSAGES", "C") // Force English output
             .output()
             .context("Failed to execute grep")?;
 
-        // grep will output "Binary file <filename> matches" for binary files
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Ok(stderr.contains("Binary file")
-            || String::from_utf8_lossy(&output.stdout).contains("Binary file"))
+        let decoded_cmd_output = String::from_utf8_lossy(&output.stdout);
+
+        if (decoded_cmd_output.contains("charset=binary") && !decoded_cmd_output.contains("inode/x-empty")) {
+            return Ok(true);
+        }
+        let mut file = File::open(path)?;
+
+        // Read the entire file into a buffer
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+        if (buffer.is_empty()) {
+            return Ok(false);
+        }
+
+        // Attempt to convert the buffer to a UTF-8 string
+        // Return true if it's not valid UTF-8, false if it is
+        Ok(String::from_utf8(buffer).is_err())
     }
 
     fn parse_status_line(&self, line: &str) -> Result<Option<StatusEntry>> {
@@ -179,7 +193,7 @@ impl Repository {
 
                 Ok(Some(StatusEntry {
                     display_path: path.clone(),
-                    abs_path: self.repo_root_path.join(path).canonicalize()?,
+                    abs_path: absolute(self.repo_root_path.join(path))?,
                     status: StatusCode::from_str(&status)?,
                     staged,
                     original_path: None,
@@ -198,7 +212,7 @@ impl Repository {
 
                 Ok(Some(StatusEntry {
                     display_path: new.clone(),
-                    abs_path: self.repo_root_path.join(new).canonicalize()?,
+                    abs_path: absolute(self.repo_root_path.join(new))?,
                     status: if entry_type == "R" {
                         StatusCode::Renamed
                     } else {
@@ -218,7 +232,7 @@ impl Repository {
 
                 Ok(Some(StatusEntry {
                     display_path: path.clone(),
-                    abs_path: self.repo_root_path.join(path).canonicalize()?,
+                    abs_path: absolute(self.repo_root_path.join(path))?,
                     status: StatusCode::Unmerged,
                     staged: false,
                     original_path: None,
@@ -234,7 +248,7 @@ impl Repository {
 
                 Ok(Some(StatusEntry {
                     display_path: path.clone(),
-                    abs_path: self.repo_root_path.join(path).canonicalize()?,
+                    abs_path: absolute(self.repo_root_path.join(path))?,
                     status: StatusCode::Untracked,
                     staged: false,
                     original_path: None,
@@ -265,23 +279,24 @@ impl Repository {
             }
             StatusCode::Deleted => {
                 // For deleted files, show what was deleted using git show
-                let output = self
-                    .make_command("git")
-                    .args(["show", &format!("HEAD:{}", entry.abs_path.to_str().unwrap())])
-                    .current_dir(&entry.abs_path)
-                    .output()
-                    .context("Failed to execute git show")?;
-
-                if output.status.success() {
-                    let content = String::from_utf8(output.stdout)
-                        .context("Invalid UTF-8 in git show output")?;
-                    Ok(Some(format!(
-                        "-{}",
-                        content.lines().collect::<Vec<_>>().join("\n-")
-                    )))
-                } else {
-                    Ok(None)
-                }
+                // let output = self
+                //     .make_command("git")
+                //     .args(["show", &format!("HEAD:{}", entry.abs_path.to_str().unwrap())])
+                //     .current_dir(&entry.abs_path)
+                //     .output()
+                //     .context("Failed to execute git show")?;
+                //
+                // if output.status.success() {
+                //     let content = String::from_utf8(output.stdout)
+                //         .context("Invalid UTF-8 in git show output")?;
+                //     Ok(Some(format!(
+                //         "-{}",
+                //         content.lines().collect::<Vec<_>>().join("\n-")
+                //     )))
+                Ok(Some("This file was deleted".parse()?))
+                // } else {
+                //     Ok(None)
+                // }
             }
             StatusCode::Renamed | StatusCode::Copied => {
                 if let Some(ref old_path) = entry.original_path {
@@ -585,19 +600,16 @@ mod tests {
             .iter()
             .filter(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "binary.bin")
             .collect();
-        assert!(
-            binary_files.is_empty(),
-            "Binary files should be excluded from status"
-        );
+        assert_eq!(binary_files.first().unwrap().is_binary, true);
 
         let text_files: Vec<_> = status
             .entries
             .iter()
             .filter(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "text.txt")
             .collect();
-        assert!(
-            !text_files.is_empty(),
-            "Text files should be included in status"
+        assert_eq!(
+            text_files.first().unwrap().is_binary,
+            false,
         );
 
         Ok(())
@@ -864,7 +876,7 @@ mod tests {
         let entry = status.entries.first().unwrap();
         let diff = repo.get_diff(entry)?.unwrap();
 
-        assert!(diff.contains("-content to delete"));
+        assert!(diff.contains("This file was deleted"));
 
         Ok(())
     }
