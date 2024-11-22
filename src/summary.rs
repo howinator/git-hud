@@ -56,10 +56,7 @@ impl Summarizer for ClaudeSummarizer {
     async fn summarize(&self, diff: &str) -> Result<String> {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert(
-            "x-api-key",
-            HeaderValue::from_str(&*self.api_key)?,
-        );
+        headers.insert("x-api-key", HeaderValue::from_str(&*self.api_key)?);
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
 
         let request_body = serde_json::json!({

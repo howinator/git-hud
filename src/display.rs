@@ -88,7 +88,7 @@ impl StatusFormatter {
         for entry in &status.entries {
             if entry.staged {
                 let status_text = self.format_status(&entry.status);
-                let path = format!("{}", entry.path);
+                let path = format!("{}", entry.display_path);
 
                 if let Some(orig_path) = &entry.original_path {
                     println!("\t{}: {} -> {}", status_text.green(), orig_path, path);
@@ -109,7 +109,7 @@ impl StatusFormatter {
         for entry in &status.entries {
             if !entry.staged && !matches!(entry.status, StatusCode::Untracked) {
                 let status_text = self.format_status(&entry.status);
-                let path = format!("{}", entry.path);
+                let path = format!("{}", entry.display_path);
 
                 // Here we'd add the summary when implemented
                 println!("\t{}: {}", status_text.red(), path);
@@ -131,7 +131,7 @@ impl StatusFormatter {
             println!("  (use \"git add <file>...\" to include in what will be committed)");
 
             for entry in untracked {
-                println!("\t{}", entry.path.red());
+                println!("\t{}", entry.display_path.red());
             }
             println!();
         }
@@ -261,7 +261,7 @@ mod tests {
             .current_dir(temp_dir.path())
             .output()?;
 
-        let repo = Repository::open_current_directory()?;
+        let repo = Repository::open_current_directory(temp_dir.path().to_str())?;
         Ok((temp_dir, repo))
     }
 

@@ -4,8 +4,8 @@ mod cache;
 mod display;
 mod error;
 mod git;
-mod summary;
 mod strings;
+mod summary;
 
 use crate::summary::Summarizer;
 use git::StatusCode;
@@ -27,7 +27,7 @@ async fn run() -> Result<()> {
         .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY environment variable not set"))?;
 
     // Initialize repositories and services
-    let repo = git::Repository::open_current_directory()?;
+    let repo = git::Repository::open_current_directory(None)?;
     let status = repo.get_status()?;
     let summarizer = ClaudeSummarizer::new()?;
 
@@ -46,7 +46,7 @@ async fn run() -> Result<()> {
         };
 
         files_with_summaries.push(FileWithSummary {
-            path: entry.path,
+            path: entry.display_path.clone(),
             status: entry.status,
             staged: entry.staged,
             original_path: entry.original_path,

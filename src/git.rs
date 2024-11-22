@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 
 pub struct Repository {
     repo: git2::Repository,
+    repo_root_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -39,24 +41,30 @@ impl FromStr for StatusCode {
 
 #[derive(Debug)]
 pub struct StatusEntry {
-    pub path: String,
+    pub abs_path: PathBuf,
+    pub display_path: String,
     pub status: StatusCode,
     pub staged: bool,
     pub original_path: Option<String>,
     pub is_binary: bool,
 }
 
+#[derive(Debug)]
 pub struct Status {
     pub entries: Vec<StatusEntry>,
 }
 impl Repository {
-    pub fn open_current_directory() -> Result<Self> {
-        let repo = git2::Repository::open(".")?;
-        Ok(Self { repo })
+    pub fn open_current_directory(dir: Option<&str>) -> Result<Self> {
+        let path = PathBuf::from(dir.unwrap_or("."));
+        let repo = git2::Repository::open(&path)?;
+        Ok(Self {
+            repo,
+            repo_root_path: path,
+        })
     }
 
     pub fn get_status(&self) -> Result<Status> {
-        let mut cmd = std::process::Command::new("git");
+        let mut cmd = self.make_command("git");
         cmd.args(["status", "--porcelain=v2", "-z"]); // -z for handling filenames with spaces
         let output = cmd.output().context("Failed to execute git status")?;
 
@@ -85,7 +93,7 @@ impl Repository {
             if let Some(entry) = entry {
                 // Check if the file is binary
                 let is_binary = if !matches!(entry.status, StatusCode::Deleted) {
-                    self.is_file_binary(&entry.path)?
+                    self.is_file_binary(&entry.abs_path)?
                 } else {
                     false
                 };
@@ -96,14 +104,20 @@ impl Repository {
 
         Ok(Status { entries })
     }
+    fn make_command(&self, program: &str) -> Command {
+        let mut cmd = Command::new(program);
+        cmd.current_dir(self.repo_root_path.as_path());
+        cmd
+    }
     // Uses the grep heuristic for whether a file is binary
-    fn is_file_binary(&self, path: &str) -> Result<bool> {
+    fn is_file_binary(&self, path: &PathBuf) -> Result<bool> {
         // Skip if file doesn't exist (e.g., deleted files)
-        if !Path::new(path).exists() {
+        if path.exists() {
             return Ok(false);
         }
+        let mut grep_cmd = self.make_command("grep");
 
-        let output = Command::new("grep")
+        let output = grep_cmd
             .args(["-Hm1", "^"])
             .arg(path)
             .env("LC_MESSAGES", "C") // Force English output
@@ -123,15 +137,21 @@ impl Repository {
 
         // Split the line on whitespace while preserving the path which might contain spaces
         let mut parts = line.splitn(2, ' ');
-        let entry_type = parts.next().ok_or_else(|| anyhow::anyhow!("Missing entry type"))?;
+        let entry_type = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing entry type"))?;
 
         match entry_type {
             // Regular changed entry
             "1" | "2" => {
-                let remainder = parts.next().ok_or_else(|| anyhow::anyhow!("Missing entry data"))?;
+                let remainder = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing entry data"))?;
                 let mut fields = remainder.splitn(8, ' ');
 
-                let xy = fields.next().ok_or_else(|| anyhow::anyhow!("Missing XY field"))?;
+                let xy = fields
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing XY field"))?;
                 let _sub = fields.next(); // Skip sub field
                 let _mH = fields.next(); // Skip mH field
                 let _mI = fields.next(); // Skip mI field
@@ -140,7 +160,8 @@ impl Repository {
                 let _hash2 = fields.next(); // Skip hash2
 
                 // The remaining part is the path (might contain spaces)
-                let path = fields.next()
+                let path = fields
+                    .next()
                     .ok_or_else(|| anyhow::anyhow!("Missing path"))?
                     .to_string();
 
@@ -149,6 +170,7 @@ impl Repository {
                     if code == '.' {
                         xy.chars().nth(0).unwrap().to_string()
                     } else {
+                        println!("code to string: {}", code.to_string());
                         code.to_string()
                     }
                 } else {
@@ -156,7 +178,8 @@ impl Repository {
                 };
 
                 Ok(Some(StatusEntry {
-                    path,
+                    display_path: path.clone(),
+                    abs_path: self.repo_root_path.join(path).canonicalize()?,
                     status: StatusCode::from_str(&status)?,
                     staged,
                     original_path: None,
@@ -166,14 +189,21 @@ impl Repository {
 
             // Rest of the cases remain the same
             "R" | "C" => {
-                let remainder = parts.next().ok_or_else(|| anyhow::anyhow!("Missing rename/copy data"))?;
+                let remainder = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing rename/copy data"))?;
                 let mut parts = remainder.rsplitn(2, ' ');
                 let new = parts.next().unwrap().to_string();
                 let original = parts.next().unwrap().to_string();
 
                 Ok(Some(StatusEntry {
-                    path: new,
-                    status: if entry_type == "R" { StatusCode::Renamed } else { StatusCode::Copied },
+                    display_path: new.clone(),
+                    abs_path: self.repo_root_path.join(new).canonicalize()?,
+                    status: if entry_type == "R" {
+                        StatusCode::Renamed
+                    } else {
+                        StatusCode::Copied
+                    },
                     staged: true,
                     original_path: Some(original),
                     is_binary: false,
@@ -181,12 +211,14 @@ impl Repository {
             }
 
             "u" => {
-                let path = parts.next()
+                let path = parts
+                    .next()
                     .ok_or_else(|| anyhow::anyhow!("Missing path in unmerged entry"))?
                     .to_string();
 
                 Ok(Some(StatusEntry {
-                    path,
+                    display_path: path.clone(),
+                    abs_path: self.repo_root_path.join(path).canonicalize()?,
                     status: StatusCode::Unmerged,
                     staged: false,
                     original_path: None,
@@ -195,12 +227,14 @@ impl Repository {
             }
 
             "?" => {
-                let path = parts.next()
+                let path = parts
+                    .next()
                     .ok_or_else(|| anyhow::anyhow!("Missing path in untracked entry"))?
                     .to_string();
 
                 Ok(Some(StatusEntry {
-                    path,
+                    display_path: path.clone(),
+                    abs_path: self.repo_root_path.join(path).canonicalize()?,
                     status: StatusCode::Untracked,
                     staged: false,
                     original_path: None,
@@ -222,7 +256,7 @@ impl Repository {
         match entry.status {
             StatusCode::Untracked => {
                 // For untracked files, show the entire file as added
-                let content = std::fs::read_to_string(&entry.path)
+                let content = std::fs::read_to_string(&entry.abs_path)
                     .context("Failed to read untracked file")?;
                 Ok(Some(format!(
                     "+{}",
@@ -231,8 +265,10 @@ impl Repository {
             }
             StatusCode::Deleted => {
                 // For deleted files, show what was deleted using git show
-                let output = Command::new("git")
-                    .args(["show", &format!("HEAD:{}", entry.path)])
+                let output = self
+                    .make_command("git")
+                    .args(["show", &format!("HEAD:{}", entry.abs_path.to_str().unwrap())])
+                    .current_dir(&entry.abs_path)
                     .output()
                     .context("Failed to execute git show")?;
 
@@ -249,8 +285,15 @@ impl Repository {
             }
             StatusCode::Renamed | StatusCode::Copied => {
                 if let Some(ref old_path) = entry.original_path {
-                    let output = Command::new("git")
-                        .args(["diff", "--no-color", "--no-prefix", old_path, &entry.path])
+                    let output = self
+                        .make_command("git")
+                        .args([
+                            "diff",
+                            "--no-color",
+                            "--no-prefix",
+                            old_path,
+                            &entry.abs_path.to_str().unwrap(),
+                        ])
                         .output()
                         .context("Failed to execute git diff for renamed file")?;
 
@@ -272,7 +315,7 @@ impl Repository {
                         "--no-color",
                         "--no-prefix",
                         "--diff-filter=U",
-                        &entry.path,
+                        &entry.abs_path.to_str().unwrap(),
                     ])
                     .output()
                     .context("Failed to execute git diff for unmerged file")?;
@@ -293,9 +336,10 @@ impl Repository {
                     args.push("--cached");
                 }
 
-                args.push(&entry.path);
+                args.push(&entry.abs_path.to_str().unwrap());
 
-                let output = Command::new("git")
+                let output = self
+                    .make_command("git")
                     .args(&args)
                     .env("GIT_CONFIG_NOGLOBAL", "1")
                     .env("HOME", "")
@@ -308,7 +352,8 @@ impl Repository {
                         .context("Invalid UTF-8 in git diff output")
                         .map(Some)
                 } else {
-                    Err(anyhow::anyhow!("Failed to execute git diff").context(String::from_utf8(output.stderr)?))
+                    Err(anyhow::anyhow!("Failed to execute git diff")
+                        .context(String::from_utf8(output.stderr)?))
                 }
             }
         }
@@ -342,7 +387,7 @@ mod tests {
             .current_dir(temp_dir.path())
             .output()?;
 
-        let repo = Repository::open_current_directory()?;
+        let repo = Repository::open_current_directory(temp_dir.path().to_str())?;
         Ok((temp_dir, repo))
     }
 
@@ -361,7 +406,7 @@ mod tests {
         let entry = status.entries.first().unwrap();
         assert!(matches!(entry.status, StatusCode::Added));
         assert!(entry.staged);
-        assert_eq!(entry.path, "new.txt");
+        assert_eq!(entry.abs_path.file_name().unwrap().to_str().unwrap(), "new.txt");
 
         Ok(())
     }
@@ -376,7 +421,10 @@ mod tests {
         let status = repo.get_status()?;
         let entry = status.entries.first().unwrap();
         assert!(matches!(entry.status, StatusCode::Untracked));
-        assert_eq!(entry.path, "file with spaces.txt");
+        assert_eq!(
+            entry.abs_path.file_name().unwrap().to_str().unwrap(),
+            "file with spaces.txt"
+        );
 
         Ok(())
     }
@@ -430,7 +478,7 @@ mod tests {
         let entry = status
             .entries
             .iter()
-            .find(|e| e.path == "conflict.txt")
+            .find(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "conflict.txt")
             .unwrap();
         assert!(matches!(entry.status, StatusCode::Unmerged));
 
@@ -460,7 +508,11 @@ mod tests {
             .output()?;
 
         let status = repo.get_status()?;
-        let entry = status.entries.iter().find(|e| e.path == "sub").unwrap();
+        let entry = status
+            .entries
+            .iter()
+            .find(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "sub")
+            .unwrap();
         assert!(matches!(entry.status, StatusCode::Modified));
 
         Ok(())
@@ -468,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_parse_status_line() {
-        let repo = Repository::open_current_directory().unwrap();
+        let repo = Repository::open_current_directory(None).unwrap();
 
         // Test modified file
         let entry = repo
@@ -477,7 +529,10 @@ mod tests {
             .unwrap();
         assert!(matches!(entry.status, StatusCode::Modified));
         assert!(!entry.staged);
-        assert_eq!(entry.path, "file.txt");
+        assert_eq!(
+            entry.abs_path.file_name().unwrap().to_str().unwrap(),
+            "file.txt"
+        );
 
         // Test staged new file
         let entry = repo
@@ -486,7 +541,7 @@ mod tests {
             .unwrap();
         assert!(matches!(entry.status, StatusCode::Added));
         assert!(entry.staged);
-        assert_eq!(entry.path, "new.txt");
+        assert_eq!(entry.abs_path.file_name().unwrap().to_str().unwrap(), "new.txt");
 
         // Test renamed file
         let entry = repo
@@ -495,14 +550,17 @@ mod tests {
             .unwrap();
         assert!(matches!(entry.status, StatusCode::Renamed));
         assert!(entry.staged);
-        assert_eq!(entry.path, "new.txt");
+        assert_eq!(entry.abs_path.file_name().unwrap().to_str().unwrap(), "new.txt");
         assert_eq!(entry.original_path, Some("old.txt".to_string()));
 
         // Test untracked file
         let entry = repo.parse_status_line("? untracked.txt").unwrap().unwrap();
         assert!(matches!(entry.status, StatusCode::Untracked));
         assert!(!entry.staged);
-        assert_eq!(entry.path, "untracked.txt");
+        assert_eq!(
+            entry.abs_path.file_name().unwrap().to_str().unwrap(),
+            "untracked.txt"
+        );
     }
 
     #[test]
@@ -517,15 +575,15 @@ mod tests {
         file.write_all(&[0u8, 159u8, 146u8, 150u8])?; // Some binary content including null bytes
 
         // Test individual files
-        assert!(!repo.is_file_binary("text.txt")?);
-        assert!(repo.is_file_binary("binary.bin")?);
+        assert!(!repo.is_file_binary(&repo.repo_root_path.join("text.txt"))?);
+        assert!(repo.is_file_binary(&repo.repo_root_path.join("binary.bin"))?);
 
         // Test that binary files are excluded from status
         let status = repo.get_status()?;
         let binary_files: Vec<_> = status
             .entries
             .iter()
-            .filter(|e| e.path == "binary.bin")
+            .filter(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "binary.bin")
             .collect();
         assert!(
             binary_files.is_empty(),
@@ -535,7 +593,7 @@ mod tests {
         let text_files: Vec<_> = status
             .entries
             .iter()
-            .filter(|e| e.path == "text.txt")
+            .filter(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "text.txt")
             .collect();
         assert!(
             !text_files.is_empty(),
@@ -564,7 +622,7 @@ mod tests {
             let mut file = File::create(&path)?;
             file.write_all(content)?;
             assert!(
-                repo.is_file_binary(filename)?,
+                repo.is_file_binary(&repo.repo_root_path.join(filename))?,
                 "File {} should be detected as binary",
                 filename
             );
@@ -582,7 +640,7 @@ mod tests {
             let path = temp_dir.path().join(filename);
             fs::write(&path, content)?;
             assert!(
-                !repo.is_file_binary(filename)?,
+                !repo.is_file_binary(&repo.repo_root_path.join(filename))?,
                 "File {} should be detected as text",
                 filename
             );
@@ -597,24 +655,24 @@ mod tests {
 
         // Test file with only newlines
         fs::write(temp_dir.path().join("newlines.txt"), "\n\n\n")?;
-        assert!(!repo.is_file_binary("newlines.txt")?);
+        assert!(!repo.is_file_binary(&repo.repo_root_path.join("newlines.txt"))?);
 
         // Test file with spaces and special characters in name
         let filename = "special file (with spaces) アイウエオ.txt";
         fs::write(temp_dir.path().join(filename), "content")?;
-        assert!(!repo.is_file_binary(filename)?);
+        assert!(!repo.is_file_binary(&repo.repo_root_path.join(filename))?);
 
         // Test very large text file
         let large_text = "A".repeat(100_000);
         fs::write(temp_dir.path().join("large.txt"), large_text)?;
-        assert!(!repo.is_file_binary("large.txt")?);
+        assert!(!repo.is_file_binary(&repo.repo_root_path.join("large.txt"))?);
 
         // Test file with null bytes in middle
         let mut file = File::create(temp_dir.path().join("mixed.bin"))?;
         file.write_all(b"Start")?;
         file.write_all(&[0u8, 0u8])?;
         file.write_all(b"End")?;
-        assert!(repo.is_file_binary("mixed.bin")?);
+        assert!(repo.is_file_binary(&repo.repo_root_path.join("mixed.bin"))?);
 
         Ok(())
     }
@@ -767,7 +825,7 @@ mod tests {
         let entry = status
             .entries
             .iter()
-            .find(|e| e.path == "conflict.txt")
+            .find(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "conflict.txt")
             .unwrap();
         let diff = repo.get_diff(entry)?.unwrap();
 
