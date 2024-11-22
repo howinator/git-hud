@@ -6,7 +6,7 @@ use std::process::Command;
 use std::str::FromStr;
 
 pub struct Repository {
-    repo: git2::Repository,
+    _repo: git2::Repository,
     repo_root_path: PathBuf,
 }
 
@@ -59,7 +59,7 @@ impl Repository {
         let path = PathBuf::from(dir.unwrap_or("."));
         let repo = git2::Repository::open(&path)?;
         Ok(Self {
-            repo,
+            _repo: repo,
             repo_root_path: path,
         })
     }
@@ -127,7 +127,7 @@ impl Repository {
 
         let decoded_cmd_output = String::from_utf8_lossy(&output.stdout);
 
-        if (decoded_cmd_output.contains("charset=binary") && !decoded_cmd_output.contains("inode/x-empty")) {
+        if decoded_cmd_output.contains("charset=binary") && !decoded_cmd_output.contains("inode/x-empty") {
             return Ok(true);
         }
         let mut file = File::open(path)?;
@@ -135,7 +135,7 @@ impl Repository {
         // Read the entire file into a buffer
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        if (buffer.is_empty()) {
+        if buffer.is_empty() {
             return Ok(false);
         }
 
@@ -167,9 +167,9 @@ impl Repository {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("Missing XY field"))?;
                 let _sub = fields.next(); // Skip sub field
-                let _mH = fields.next(); // Skip mH field
-                let _mI = fields.next(); // Skip mI field
-                let _mW = fields.next(); // Skip mW field
+                let _m_h = fields.next(); // Skip mH field
+                let _m_i = fields.next(); // Skip mI field
+                let _m_w = fields.next(); // Skip mW field
                 let _hash1 = fields.next(); // Skip hash1
                 let _hash2 = fields.next(); // Skip hash2
 

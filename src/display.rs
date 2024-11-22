@@ -287,7 +287,7 @@ mod tests {
         let mut output = Vec::new();
         {
             use std::io::Write;
-            let mut cursor = std::io::Cursor::new(&mut output);
+            let _cursor = std::io::Cursor::new(&mut output);
             std::io::stdout().flush()?;
 
             formatter.display(&status)?;
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_branch_status() -> Result<()> {
-        let (temp_dir, repo) = setup_test_repo()?;
+        let (temp_dir, _) = setup_test_repo()?;
 
         // Create and commit a file
         fs::write(temp_dir.path().join("test.txt"), "content\n")?;
@@ -325,7 +325,7 @@ mod tests {
         // Capture output
         let mut output = Vec::new();
         {
-            let mut cursor = std::io::Cursor::new(&mut output);
+            let _cursor = std::io::Cursor::new(&mut output);
             formatter.print_branch_status()?;
         }
 

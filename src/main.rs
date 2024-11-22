@@ -1,6 +1,5 @@
 use anyhow::Result;
 
-mod cache;
 mod display;
 mod error;
 mod git;
@@ -16,14 +15,13 @@ struct FileWithSummary {
     status: StatusCode,
     staged: bool,
     original_path: Option<String>,
-    is_binary: bool,
     summary: Option<String>,
 }
 
 #[tokio::main]
 async fn run() -> Result<()> {
     // Ensure we have the API key
-    let api_key = std::env::var(strings::ANTHROPIC_API_KEY)
+    let _api_key = std::env::var(strings::ANTHROPIC_API_KEY)
         .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY environment variable not set"))?;
 
     // Initialize repositories and services
@@ -50,7 +48,6 @@ async fn run() -> Result<()> {
             status: entry.status,
             staged: entry.staged,
             original_path: entry.original_path,
-            is_binary: entry.is_binary,
             summary,
         });
     }

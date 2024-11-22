@@ -8,8 +8,8 @@ pub enum HudError {
     #[error("API error: {0}")]
     Api(String),
 
-    #[error("Cache error: {0}")]
-    Cache(String),
+    // #[error("Cache error: {0}")]
+    // Cache(String),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
