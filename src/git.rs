@@ -127,7 +127,9 @@ impl Repository {
 
         let decoded_cmd_output = String::from_utf8_lossy(&output.stdout);
 
-        if decoded_cmd_output.contains("charset=binary") && !decoded_cmd_output.contains("inode/x-empty") {
+        if decoded_cmd_output.contains("charset=binary")
+            && !decoded_cmd_output.contains("inode/x-empty")
+        {
             return Ok(true);
         }
         let mut file = File::open(path)?;
@@ -184,7 +186,6 @@ impl Repository {
                     if code == '.' {
                         xy.chars().nth(0).unwrap().to_string()
                     } else {
-                        println!("code to string: {}", code.to_string());
                         code.to_string()
                     }
                 } else {
@@ -421,7 +422,10 @@ mod tests {
         let entry = status.entries.first().unwrap();
         assert!(matches!(entry.status, StatusCode::Added));
         assert!(entry.staged);
-        assert_eq!(entry.abs_path.file_name().unwrap().to_str().unwrap(), "new.txt");
+        assert_eq!(
+            entry.abs_path.file_name().unwrap().to_str().unwrap(),
+            "new.txt"
+        );
 
         Ok(())
     }
@@ -533,7 +537,6 @@ mod tests {
         Ok(())
     }
 
-
     // TODO: I think the mock status line I'm passing in here is wrong
     #[ignore]
     #[test]
@@ -559,7 +562,10 @@ mod tests {
             .unwrap();
         assert!(matches!(entry.status, StatusCode::Added));
         assert!(entry.staged);
-        assert_eq!(entry.abs_path.file_name().unwrap().to_str().unwrap(), "new.txt");
+        assert_eq!(
+            entry.abs_path.file_name().unwrap().to_str().unwrap(),
+            "new.txt"
+        );
 
         // Test renamed file
         let entry = repo
@@ -568,7 +574,10 @@ mod tests {
             .unwrap();
         assert!(matches!(entry.status, StatusCode::Renamed));
         assert!(entry.staged);
-        assert_eq!(entry.abs_path.file_name().unwrap().to_str().unwrap(), "new.txt");
+        assert_eq!(
+            entry.abs_path.file_name().unwrap().to_str().unwrap(),
+            "new.txt"
+        );
         assert_eq!(entry.original_path, Some("old.txt".to_string()));
 
         // Test untracked file
@@ -610,10 +619,7 @@ mod tests {
             .iter()
             .filter(|e| e.abs_path.file_name().unwrap().to_str().unwrap() == "text.txt")
             .collect();
-        assert_eq!(
-            text_files.first().unwrap().is_binary,
-            false,
-        );
+        assert_eq!(text_files.first().unwrap().is_binary, false,);
 
         Ok(())
     }
