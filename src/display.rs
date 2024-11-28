@@ -70,10 +70,9 @@ impl StatusFormatter {
                 let parts: Vec<&str> = remote_line.splitn(2, "[").collect();
                 if let Some(remote_info) = parts.get(1) {
                     let remote_status = remote_info.trim_end_matches(']');
+
                     println!("Your branch is {}", remote_status);
                 }
-            } else if !branch_name.is_empty() {
-                println!("Your branch is not tracking a remote branch.");
             }
         }
 
