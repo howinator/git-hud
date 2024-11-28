@@ -59,24 +59,6 @@ impl StatusFormatter {
 
         println!("On branch {}", branch_name);
 
-        // Get remote tracking info
-        let remote_output = Command::new("git").args(["status", "-sb"]).output()?;
-
-        let remote_status = String::from_utf8(remote_output.stdout)?;
-
-        // Parse remote status line
-        if let Some(remote_line) = remote_status.lines().next() {
-            if remote_line.contains("[") {
-                let parts: Vec<&str> = remote_line.splitn(2, "[").collect();
-                if let Some(remote_info) = parts.get(1) {
-                    let remote_status = remote_info.trim_end_matches(']');
-
-                    println!("Your branch is {}", remote_status);
-                }
-            }
-        }
-
-        println!();
         Ok(())
     }
 
