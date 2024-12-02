@@ -61,7 +61,7 @@ impl Summarizer for ClaudeSummarizer {
 
         let request_body = serde_json::json!({
             "model": "claude-3-haiku-20240307",
-            "max_tokens": 1024,
+            "max_tokens": 512,
             "messages": [{
                 "role": "user",
                 "content": format!(
