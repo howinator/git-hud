@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::Read;
-use std::path::{absolute, PathBuf};
+use std::path::{self, absolute, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
@@ -56,11 +56,16 @@ pub struct Status {
 }
 impl Repository {
     pub fn open_current_directory(dir: Option<&str>) -> Result<Self> {
-        let path = PathBuf::from(dir.unwrap_or("."));
+        let path = git2::Repository::discover_path(".", ["/home/", "/Users"])
+            .expect("Could not discover the git path when opening current directory");
         let repo = git2::Repository::open(&path)?;
+        let work_dir_path = repo
+            .workdir()
+            .expect("Could not find work dir when opening current directory")
+            .to_path_buf();
         Ok(Self {
             _repo: repo,
-            repo_root_path: path,
+            repo_root_path: work_dir_path,
         })
     }
 
