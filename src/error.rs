@@ -10,7 +10,6 @@ pub enum HudError {
 
     // #[error("Cache error: {0}")]
     // Cache(String),
-
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
