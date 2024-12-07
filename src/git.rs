@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::Read;
-use std::path::{self, absolute, PathBuf};
+use std::path::{absolute, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 
