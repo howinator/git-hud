@@ -56,7 +56,8 @@ pub struct Status {
 }
 impl Repository {
     pub fn open_current_directory(dir: Option<&str>) -> Result<Self> {
-        let path = git2::Repository::discover_path(".", ["/home/", "/Users"])
+        let discover_from_dir = dir.unwrap_or(".");
+        let path = git2::Repository::discover_path(discover_from_dir, ["/home/", "/Users"])
             .expect("Could not discover the git path when opening current directory");
         let repo = git2::Repository::open(&path)?;
         let work_dir_path = repo
